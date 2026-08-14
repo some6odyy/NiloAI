@@ -24,13 +24,16 @@ deploy/        -> systemd + nginx para el VPS
 
 ## Cómo correrlo localmente
 
-> **Requisito de versión:** usa Python 3.11 o 3.12. Python 3.13+ (y en
-> particular 3.14) puede fallar al instalar `pydantic-core` en Windows
-> porque todavía no existe wheel precompilado para esas versiones tan
-> nuevas, y pip intenta compilarlo desde el código fuente (falla si no
-> tienes el toolchain de Rust instalado). Si tienes varias versiones de
-> Python instaladas, crea el venv apuntando explícitamente a la correcta:
-> `py -3.12 -m venv .venv`
+> **Versión de Python:** el proyecto funciona con Python 3.11 a 3.14. Las
+> dependencias en `requirements.txt` usan versiones mínimas (`>=`) elegidas
+> específicamente porque ya publican wheels precompilados para 3.14 — no
+> deberías necesitar compilar nada ni instalar Rust/Visual C++ Build Tools
+> en ningún equipo, incluidas las salas de la universidad.
+>
+> Si en un equipo puntual `pip install` igual intenta compilar algo desde
+> el código fuente, asegúrate de que `pip` esté actualizado primero
+> (`python -m pip install --upgrade pip`) — versiones viejas de pip a
+> veces no saben pedir el wheel correcto aunque exista.
 
 ```bash
 python -m venv .venv

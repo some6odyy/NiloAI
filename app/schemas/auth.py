@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 class RegistroRequest(BaseModel):
     nombre: str = Field(min_length=2, max_length=100)
     correo: EmailStr
-    contrasena: str = Field(min_length=8, description="Mínimo 8 caracteres")
+    contrasena: str = Field(min_length=8, max_length=72, description="Entre 8 y 72 caracteres")
 
 
 class LoginRequest(BaseModel):

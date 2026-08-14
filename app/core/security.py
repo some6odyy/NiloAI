@@ -18,8 +18,16 @@ def hashear_contrasena(contrasena_plana: str) -> str:
 
 
 def verificar_contrasena(contrasena_plana: str, contrasena_hasheada: str) -> bool:
-    """Compara la contraseña ingresada en el login contra el hash guardado."""
-    return bcrypt.checkpw(contrasena_plana.encode("utf-8"), contrasena_hasheada.encode("utf-8"))
+    """Compara la contraseña ingresada en el login contra el hash guardado.
+
+    bcrypt 5.x lanza ValueError si la contraseña supera los 72 bytes (antes
+    la truncaba en silencio). En login no controlamos qué escribe el
+    cliente, así que lo capturamos: una contraseña demasiado larga
+    simplemente no coincide, no debe tumbar el endpoint."""
+    try:
+        return bcrypt.checkpw(contrasena_plana.encode("utf-8"), contrasena_hasheada.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def crear_access_token(id_administrador: int, correo: str) -> str:
