@@ -29,6 +29,12 @@ AI_API_KEY = os.getenv("AI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 
+# --- Cifrado en reposo del token de WhatsApp de cada negocio ---
+# Clave de ejemplo solo para desarrollo local — en producción SIEMPRE se
+# debe definir una propia. Generarla con:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "6Tx_gPZKphFL3YldOKPEOnYR78mPEoLSzFZed6FzhBg=")
+
 # --- Requerimiento no funcional RNF-01: latencia máxima ---
 MAX_RESPONSE_LATENCY_SECONDS = 15
 

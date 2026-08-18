@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+nilo_ai.db
+tests/
+deploy/
+.git/
+.gitignore

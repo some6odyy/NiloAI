@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.core.config import WHATSAPP_VERIFY_TOKEN
+from app.core.security import descifrar_texto
 from app.models.negocio import Negocio
 from app.models.contexto_ia import ContextoIA
 from app.models.servicio import Servicio
@@ -119,11 +120,17 @@ async def recibir_mensaje(request: Request, db: Session = Depends(get_db)):
     db.commit()
 
     # 8) Responder al cliente por WhatsApp (RF-09)
+    token_whatsapp = descifrar_texto(negocio.whatsapp_token)
+    if not token_whatsapp:
+        # El negocio tiene el bot activo pero nunca conectó (o le falló el
+        # cifrado de) su token de WhatsApp — no hay a quién mandarle nada.
+        return {"status": "procesado", "enviado_a_whatsapp": False, "motivo": "whatsapp_no_conectado"}
+
     enviado = whatsapp_service.enviar_mensaje(
         telefono_destino=telefono_cliente,
         texto=respuesta,
         phone_number_id=negocio.whatsapp_phone_number_id,
-        token=negocio.whatsapp_token,
+        token=token_whatsapp,
     )
 
     return {"status": "procesado", "enviado_a_whatsapp": enviado}

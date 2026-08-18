@@ -7,8 +7,11 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from jose import jwt, JWTError
+from cryptography.fernet import Fernet, InvalidToken
 
-from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, ENCRYPTION_KEY
+
+_fernet = Fernet(ENCRYPTION_KEY.encode())
 
 
 def hashear_contrasena(contrasena_plana: str) -> str:
@@ -48,4 +51,23 @@ def decodificar_access_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
+        return None
+
+
+def cifrar_texto(texto_plano: str) -> str:
+    """Cifra credenciales sensibles antes de guardarlas en la BD — hoy se
+    usa para el token de WhatsApp de cada negocio (RF-06). El cifrado es
+    reversible (a diferencia del hash de contraseñas) porque necesitamos
+    volver a leer el token real para llamar a la API de Meta."""
+    return _fernet.encrypt(texto_plano.encode("utf-8")).decode("utf-8")
+
+
+def descifrar_texto(texto_cifrado: str | None) -> str | None:
+    """Descifra un valor guardado con cifrar_texto(). Devuelve None si no
+    hay valor o si el cifrado es inválido (ej. se cambió ENCRYPTION_KEY)."""
+    if not texto_cifrado:
+        return None
+    try:
+        return _fernet.decrypt(texto_cifrado.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
         return None

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.core.deps import obtener_administrador_actual, obtener_negocio_propio
+from app.core.security import cifrar_texto
 from app.models.administrador import Administrador
 from app.models.negocio import Negocio
 from app.schemas.negocio import NegocioCreate, NegocioUpdate, NegocioResponse, EstadoBotResponse
@@ -107,7 +108,7 @@ def conectar_whatsapp(
         )
 
     negocio.whatsapp_phone_number_id = datos.phone_number_id
-    negocio.whatsapp_token = datos.access_token
+    negocio.whatsapp_token = cifrar_texto(datos.access_token)
     db.commit()
     db.refresh(negocio)
 

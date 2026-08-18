@@ -19,7 +19,11 @@ app/
 
 frontend/      -> Dashboard (HTML/CSS/JS vanilla + fetch a la API)
 tests/         -> smoke_test.py: prueba end-to-end con datos de Silvabarber
-deploy/        -> systemd + nginx para el VPS
+deploy/        -> systemd + nginx para el VPS (alternativa al deploy en Vercel)
+
+pyproject.toml -> le dice a Vercel dónde está la app FastAPI
+vercel.json    -> duración máxima de la función serverless
+.vercelignore  -> qué queda fuera del despliegue en Vercel
 ```
 
 ## Cómo correrlo localmente
@@ -78,14 +82,153 @@ despliegue y después de cualquier cambio grande en los routers.
 | RF-03 Inyección de contexto | `routers/contexto.py`, `models/contexto_ia.py`, `models/servicio.py` — en el Dashboard: bloques "Personificación" / "Catálogo & Precios" / "Reglas del Local" |
 | RF-04 Control on/off del bot | `routers/negocio.py` (`estado_bot`) |
 | RF-05 Historial de logs | `routers/conversaciones.py` |
-| RF-06 Recepción de webhooks | `routers/webhook.py`, `services/whatsapp_service.py` |
+| RF-06 Recepción de webhooks | `routers/webhook.py`, `services/whatsapp_service.py` — token cifrado con `core/security.py` (`cifrar_texto`/`descifrar_texto`) |
 | RF-07 Prompt dinámico | `services/ai_service.py` (`armar_prompt`) |
 | RF-08 Procesamiento NLP | `services/ai_service.py` (`generar_respuesta`, Gemini/OpenAI) — en el Dashboard: bloque "Motor de IA" (proveedor + modelo por negocio) |
 | RF-09 Envío de respuesta | `services/whatsapp_service.py` (`enviar_mensaje`) |
 | RNF-01 Latencia < 15s | `core/config.py` (`MAX_RESPONSE_LATENCY_SECONDS`), timeout en `ai_service.py` |
 | RNF-02 Multitenant | `id_negocio` como FK + `core/deps.py` (`obtener_negocio_propio`) |
 
-## Despliegue en el VPS (producción)
+## Despliegue en Vercel (recomendado para partir)
+
+Vercel soporta FastAPI de forma prácticamente nativa (detecta la app y la
+sirve como una única Vercel Function). Ya está todo preparado en el repo
+(`pyproject.toml`, `vercel.json`, `.vercelignore`) — solo falta la parte
+de credenciales.
+
+> ⚠️ **Importante sobre el plan gratuito (Hobby):** los Términos de
+> Servicio de Vercel restringen el plan Hobby a uso personal/no comercial.
+> Sirve perfecto para probar NiloAI, hacer la demo y validar el producto
+> — pero si van a cobrarle a clientes reales, van a necesitar el plan
+> **Pro** (USD 20/mes) antes de lanzarlo de verdad.
+
+### Por qué no alcanza con lo que ya tenían
+
+Vercel es **serverless**: cada request puede correr en una instancia
+distinta y el disco no persiste entre invocaciones. Eso significa que
+`nilo_ai.db` (SQLite) **se perdería** — no sirve para producción acá.
+Por eso el proyecto ahora soporta Postgres a través de la misma
+`DATABASE_URL` (no hay que tocar código, solo cambiar la variable).
+
+### 1. Crear una base de datos Postgres gratuita
+
+La forma más simple es [Neon](https://neon.tech) (tiene un free tier
+generoso y lo usan un montón de proyectos que corren en Vercel):
+
+1. Crea una cuenta en neon.tech y un proyecto nuevo.
+2. En el dashboard de Neon, copia el **Connection string** — viene como
+   `postgresql://usuario:clave@ep-xxxx.neon.tech/nombre_bd?sslmode=require`.
+3. Cámbiale el prefijo a `postgresql+psycopg://` (SQLAlchemy necesita
+   saber qué driver usar):
+   ```
+   postgresql+psycopg://usuario:clave@ep-xxxx.neon.tech/nombre_bd?sslmode=require
+   ```
+   Esa es tu `DATABASE_URL` de producción.
+
+*(Alternativa: Vercel también ofrece Postgres directo desde la pestaña
+"Storage" de tu proyecto, sin salir del dashboard — mismo resultado.)*
+
+### 2. Generar las claves propias (nunca uses las de ejemplo del repo)
+
+En tu terminal, con el venv activado:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+# -> esta es tu SECRET_KEY
+
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# -> esta es tu ENCRYPTION_KEY
+```
+
+Guarda ambos valores, los vas a necesitar en el paso 4.
+
+### 3. Conectar el repo a Vercel
+
+1. Sube el proyecto a GitHub (si aún no lo hiciste).
+2. Entra a [vercel.com](https://vercel.com), crea una cuenta e importa
+   el repositorio ("Add New… → Project → Import Git Repository").
+3. En "Framework Preset" deja **Other** (FastAPI no está en la lista de
+   frameworks, Vercel lo maneja igual gracias al `pyproject.toml`).
+4. **No** le des a "Deploy" todavía — primero hay que cargar las
+   variables de entorno (siguiente paso), o el primer deploy va a fallar
+   por falta de credenciales.
+
+### 4. Cargar las variables de entorno en Vercel
+
+En el proyecto dentro de Vercel: **Settings → Environment Variables**.
+Agrega estas, una por una (nombre exacto a la izquierda, valor a la
+derecha):
+
+| Variable | Valor |
+|---|---|
+| `DATABASE_URL` | El connection string de Neon del paso 1, con el prefijo `postgresql+psycopg://` |
+| `SECRET_KEY` | La que generaste en el paso 2 |
+| `ENCRYPTION_KEY` | La que generaste en el paso 2 |
+| `WHATSAPP_VERIFY_TOKEN` | Cualquier string que inventes (ej. `nilo_ai_verify_2026`) — lo vas a volver a usar en el paso 6 |
+| `AI_PROVIDER` | `gemini` u `openai` |
+| `AI_API_KEY` | Tu clave de la API de IA (ver paso 5) |
+| `GEMINI_MODEL` | `gemini-3.6-flash` (si usas Gemini) |
+| `OPENAI_MODEL` | `gpt-5.4-mini` (si usas OpenAI) |
+| `CORS_ALLOWED_ORIGINS` | `*` para partir; después de desplegar, cámbialo a tu dominio real de Vercel |
+
+Dale **Deploy**. La primera vez que la función arranque, SQLAlchemy va a
+crear las 8 tablas automáticamente en tu base Neon (mismo mecanismo que
+en local, solo que ahora apunta a Postgres).
+
+### 5. Conseguir la API key del motor de IA
+
+- **Gemini (gratis para empezar):** entra a
+  [aistudio.google.com/apikey](https://aistudio.google.com/apikey), crea
+  una API key con tu cuenta de Google, y pégala en `AI_API_KEY`.
+- **OpenAI:** entra a
+  [platform.openai.com/api-keys](https://platform.openai.com/api-keys),
+  crea una key (vas a necesitar tener saldo cargado en la cuenta), y
+  pégala en `AI_API_KEY`.
+
+Recuerda: el proveedor elegido acá en el `.env`/Vercel es el *default*
+del sistema — cada negocio puede después elegir su propio proveedor y
+modelo desde el bloque "Motor de IA" del Dashboard, sin tocar esta
+variable.
+
+### 6. Conectar el webhook real de WhatsApp
+
+Una vez desplegado, Vercel te da una URL propia con HTTPS automático
+(algo como `https://nilo-ai.vercel.app`) — ya cumple el requisito de
+Meta sin necesitar nginx ni certbot como en un VPS.
+
+1. Entra a [developers.facebook.com](https://developers.facebook.com),
+   crea una app de tipo "Business", y agrégale el producto **WhatsApp**.
+2. En WhatsApp → Configuration:
+   - **Callback URL:** `https://tu-proyecto.vercel.app/webhook`
+   - **Verify Token:** el mismo valor exacto que pusiste en
+     `WHATSAPP_VERIFY_TOKEN` en el paso 4.
+3. Dale "Verify and Save" — Meta le va a pegar un GET a tu webhook; si
+   el token coincide, queda verificado (esto es exactamente lo que hace
+   `verificar_webhook()` en `app/routers/webhook.py`).
+4. Desde el Dashboard de NiloAI (`https://tu-proyecto.vercel.app/dashboard/`),
+   en el negocio correspondiente, conecta el **Phone Number ID** y el
+   **token de acceso** que Meta te da en esa misma pantalla de
+   configuración (bloque "Conexión con WhatsApp" → queda cifrado en la
+   BD automáticamente).
+
+### 7. Verificar que quedó todo funcionando
+
+```bash
+python tests/smoke_test.py
+```
+
+Pero antes cambia `BASE_URL` al inicio del archivo de
+`http://127.0.0.1:8000` a tu dominio real de Vercel, para que las 13
+pruebas corran contra producción en vez de local.
+
+### Cada vez que hagan push a GitHub
+
+Vercel redespliega solo. No hay paso manual — a diferencia del VPS, acá
+no hay que hacer `ssh` ni reiniciar ningún servicio.
+
+---
+
+## Despliegue en el VPS (alternativa — más control, sin límite de tiempo por request)
 
 Pensado para un VPS chico (2 vCPU / 2GB RAM), con Nginx como proxy reverso
 y gunicorn+uvicorn corriendo la app como servicio del sistema.
@@ -146,10 +289,16 @@ python tests/smoke_test.py
 
 ## Notas de seguridad para producción
 
-- Genera un `SECRET_KEY` real y único (no el placeholder del `.env.example`):
-  `python -c "import secrets; print(secrets.token_hex(32))"`
-- El `whatsapp_token` de cada negocio se guarda hoy en texto plano en la
-  BD — antes de producción real conviene cifrarlo en reposo (ej. con
-  `cryptography.fernet`) o moverlo a un secret manager.
+- Genera un `SECRET_KEY` **y** un `ENCRYPTION_KEY` reales y únicos por
+  entorno (nunca los placeholders del `.env.example`) — comandos exactos
+  en la sección de despliegue en Vercel más arriba.
+- El `whatsapp_token` de cada negocio ya se cifra en reposo con
+  `cryptography.fernet` (`core/security.py`: `cifrar_texto`/`descifrar_texto`)
+  antes de guardarse en la BD — verificado que lo que queda en la tabla
+  `negocio` no es el texto plano original.
+- Si en algún momento cambias `ENCRYPTION_KEY`, los tokens de WhatsApp ya
+  guardados van a dejar de poder descifrarse (van a quedar como
+  "no conectado" hasta que el administrador los vuelva a cargar) — no
+  hay drama, pero avisa a los negocios activos antes de rotarla.
 - Cambia `CORS_ALLOWED_ORIGINS` de `*` al dominio real del Dashboard una
   vez que esté desplegado.
